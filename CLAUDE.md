@@ -288,6 +288,21 @@ Non-portable edges are dropped from the strict tier.
     that matters, but trade selection within the high-fav pool.
 - **Combined sample: 356 NO-side Euro soccer moneyline positions,
   ~49% WR, ~23% ROI, ~$7.4M PnL**. This is a defensible statistical edge.
+- **UPDATED sample (2026-04-11 late session)**: after re-running the
+  slug classifier to include honorable-tier markets (previously, many
+  honorable-trade markets were `(null)` category because `07_classifier_fix.py`
+  only read from `strict_trades`), the true sample is much larger:
+  * **1,210 NO-side Euro soccer moneyline positions**
+  * **$7.58M PnL on $34.26M staked = 22% ROI**
+  * **~61% WR** (draw skew lifts WR above coin flip)
+  * Covered categories: UCL, EPL, Ligue 1, Bundesliga, La Liga, Serie A
+- Most statistically reliable single confirmers (>100 positions each):
+  * 0xb786b8b6335e77dfad19928313: **586 positions**, 59.2% WR, 15% ROI
+  * S-Works: 285 positions, 81.4% WR, 2% ROI (tiny edge, huge WR)
+  * SeriouslySirius: 117 positions, 48.7% WR, 20% ROI
+  * TheOnlyHuman: 110 positions, 40.9% WR, 16% ROI
+- The edge is robust across wallet counts, trade counts, and time.
+  Primary finding definitely holds.
 - **Refined model rule** (ready for forward paper test):
   *"On Polymarket European soccer 'Will [team] win?' moneyline markets,
   buy NO when market-implied favorite prob ≥ 65%. Expected gross ROI:

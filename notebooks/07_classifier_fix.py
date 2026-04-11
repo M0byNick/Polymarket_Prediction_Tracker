@@ -258,11 +258,24 @@ def main():
         conn.execute("ALTER TABLE strict_markets ADD COLUMN category_broad TEXT")
     conn.commit()
 
-    # Stage 1: classify at the trade level, then derive per-market category as modal
+    # Stage 1: classify at the trade level, then derive per-market category as modal.
+    # Read from BOTH strict_trades and honorable_trades so we classify all markets,
+    # not just those traded by strict-tier wallets.
     print("[Stage 1] classifying trades by event_slug prefix")
-    trades = conn.execute(
-        "SELECT condition_id, event_slug FROM strict_trades"
-    ).fetchall()
+    # Check if honorable_trades table exists
+    hon_exists = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='honorable_trades'"
+    ).fetchone()[0]
+    if hon_exists:
+        trades = conn.execute(
+            """SELECT condition_id, event_slug FROM strict_trades
+               UNION ALL
+               SELECT condition_id, event_slug FROM honorable_trades"""
+        ).fetchall()
+    else:
+        trades = conn.execute(
+            "SELECT condition_id, event_slug FROM strict_trades"
+        ).fetchall()
     print(f"  {len(trades):,} trades to classify")
 
     market_cat_votes: dict = defaultdict(Counter)
