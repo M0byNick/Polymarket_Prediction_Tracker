@@ -173,9 +173,40 @@ Non-portable edges are dropped from the strict tier.
   - **SecondWindCapital**: tennis underdog specialist, median entry 0.140
   - **0x006cc834Cc…**: multi-sport discretionary, top priority for
     feature extraction (highest PnL, cleanest profile)
-- **Phase 2 entry point**: fix category classifier via Gamma API, re-apply
-  filter, then deep-dive feature extraction on the top 3-4 portable-edge
-  traders identified above.
+- **Phase 2 complete** (Tracks 2A, 2B, 2C, 2E) — see
+  `notebooks/phase2_findings.md`:
+  - **2A: Classifier fixed** via slug-prefix rules (Gamma `category` field
+    is 100% null; `events` endpoint per-call too slow; slugs are
+    machine-generated and cleanly classifiable). 302 prefixes cover all
+    44,867 unique event slugs, zero API calls.
+  - **Reclassification dropped 4 HFT bots from strict** (apucimama,
+    Lilybaeum, Sharky6999, 0xc2494b32d6…). Dropped 2 to other-category
+    (fengdubiying = esports, 033033033 = near-cert arb). Sports pool
+    shrank from 17 to 11.
+  - Two surprises: **piston777 is NBA+LoL** (33% of their trades are
+    League of Legends, same deep-favorite strategy applied to both).
+    **PeterDeboerCancerPatient is mostly esports** (53%), not sports.
+  - **2B: Price history pull** working after two bugs fixed:
+    `interval=max` silently empty for closed markets; `startTs/endTs`
+    capped at ~15 days. Per-market windows work. 9.0M price points
+    stored for the 4 priority traders (2,589/2,637 tokens = 98.2%).
+  - **2C: Snapshot script tested**, needs deployment. 8,966 markets
+    pass liquidity filter at 72h horizon → ~30 min per cycle, needs
+    30-min cron or shorter horizon.
+  - **2E: 0x006cc834Cc deep dive** — headline finding:
+    * 49.4% position WR, top 10 positions = 103% of total PnL
+    * $2.04M / 46% of total PnL from just **21 UCL/EPL/Ligue 1
+      soccer moneyline positions**
+    * 54% of PnL from trades entered <1h before resolution
+    * **82% of fills below market mid** (median -50 bps) — they are
+      a passive liquidity provider, not a taker
+    * Human schedule: US prime-time sports hours (20-23 UTC), weekend-
+      heavy
+    * Strategy: passive limit orders on top-flight Euro soccer
+      moneylines in the final hour, collecting spread from takers
+- **Next**: Deep dives on piston777 (NBA+LoL scalper) and
+  SecondWindCapital (tennis underdog) with the same script, then
+  Track 2B-honorable tier pulls and Phase 3 ground truth joins.
 
 ## Decisions Log
 
@@ -250,6 +281,33 @@ Non-portable edges are dropped from the strict tier.
   (4) 033033033 — deep-certainty arbitrage baseline
   Drop 0xc2494b32d6… and Sharky6999 from any further sports-edge analysis
   (they're crypto HFT, not sports traders).
+- **2026-04-11** (post-phase-2-A) — Polymarket Gamma `category` field is
+  100% null on our 66k markets. `events` endpoint has the real tags
+  (`['Sports','NBA','Games','Basketball']`) but would require ~45k calls.
+  **Event slug prefixes are the right signal**: machine-generated,
+  consistent, 302 unique prefixes cover all 44k slugs. Zero-API classifier
+  works.
+- **2026-04-11** (post-phase-2-A) — Strict filter needs HFT exclusion:
+  `trades_per_day > 500` drops 4 wallets (apucimama, Lilybaeum,
+  Sharky6999, 0xc2494b32d6…) that were mislabeled as sports specialists.
+  Sports pool shrank from 17 to 11.
+- **2026-04-11** (post-phase-2-B) — Two CLOB `/prices-history` gotchas:
+  (1) `interval=max` silently returns empty for closed markets (only
+  works on live ones); (2) `startTs`/`endTs` caps window at ~15 days.
+  Always use a tight per-market window `[first_trade - 1d, resolve_ts + 1d]`.
+  98.2% hit rate with this approach.
+- **2026-04-11** (post-phase-2-E) — 0x006cc834Cc strategy characterized:
+  passive-limit liquidity-provision on Euro soccer moneylines, 82% of
+  fills below market mid, 54% of PnL from last-hour trades, 46% of PnL
+  from 21 UCL/EPL/Ligue 1 positions. A human-pace (8.7 trades/day) US-
+  hours sports-schedule trader. The strategy is genuinely portable but
+  requires patience (placing limit orders and waiting) rather than
+  taker speed.
+- **2026-04-11** (post-phase-2-C) — Snapshot cron: 72h horizon +
+  liquidity filter yields 8,966 markets / ~30 min per cycle. Options for
+  deployment: 30-min cron at full scope, or shorter horizon (48h), or
+  sport-category filter. Deploy script is in `scripts/snapshot_markets.py`
+  but not installed on VPS yet — user deploys manually.
 
 ## Reference
 

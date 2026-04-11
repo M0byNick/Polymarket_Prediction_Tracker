@@ -39,6 +39,13 @@ FAST_SETTLING_HOURS = 72
 DEFAULT_RATE = 10.0
 TIMEOUT = 15
 
+# Liquidity filter — a market qualifies for snapshotting only if its
+# 24h volume OR current liquidity exceeds this threshold. Filters out
+# ~80% of markets (long-tail illiquid) while keeping anything someone
+# has actively traded.
+MIN_VOLUME_24H_USD = 500.0
+MIN_LIQUIDITY_USD = 500.0
+
 log = logging.getLogger("snapshot")
 
 
@@ -103,17 +110,21 @@ class RateLimiter:
 
 # ------------------------------ fetch ------------------------------ #
 
-def fetch_open_fast_settling_markets(rl: RateLimiter) -> list:
+def fetch_open_fast_settling_markets(rl: RateLimiter, hours: int,
+                                      min_vol: float, min_liq: float) -> list:
     """
     Query Gamma for all currently-open markets. Filter to those whose
-    resolve_ts is within FAST_SETTLING_HOURS of now.
+    resolve_ts is within `hours` of now AND meet liquidity thresholds.
     """
     now = int(time.time())
-    cutoff = now + FAST_SETTLING_HOURS * 3600
+    cutoff = now + hours * 3600
 
     markets = []
     offset = 0
     page_size = 500
+    n_checked = 0
+    n_too_far = 0
+    n_illiquid = 0
     while True:
         rl.wait()
         try:
@@ -138,6 +149,7 @@ def fetch_open_fast_settling_markets(rl: RateLimiter) -> list:
             break
 
         for m in batch:
+            n_checked += 1
             end_date = m.get("endDate") or m.get("endDateIso")
             if not end_date:
                 continue
@@ -148,13 +160,30 @@ def fetch_open_fast_settling_markets(rl: RateLimiter) -> list:
             except Exception:
                 continue
             if resolve_ts <= now or resolve_ts > cutoff:
+                n_too_far += 1
                 continue
+
+            # Liquidity filter
+            try:
+                vol24 = float(m.get("volume24hr") or 0)
+            except (ValueError, TypeError):
+                vol24 = 0.0
+            try:
+                liq = float(m.get("liquidityClob") or m.get("liquidity") or 0)
+            except (ValueError, TypeError):
+                liq = 0.0
+            if vol24 < min_vol and liq < min_liq:
+                n_illiquid += 1
+                continue
+
             markets.append((m, resolve_ts))
 
         if len(batch) < page_size:
             break
         offset += page_size
 
+    log.info("[snapshot] scan: checked=%d  too_far=%d  illiquid=%d  kept=%d",
+             n_checked, n_too_far, n_illiquid, len(markets))
     return markets
 
 
@@ -199,6 +228,12 @@ def main():
     parser.add_argument("--rate", type=float, default=DEFAULT_RATE)
     parser.add_argument("--max-markets", type=int, default=0,
                         help="Cap on how many markets to snapshot per run (0 = no cap)")
+    parser.add_argument("--hours", type=int, default=FAST_SETTLING_HOURS,
+                        help="Only snapshot markets resolving within this many hours")
+    parser.add_argument("--min-vol-24h", type=float, default=MIN_VOLUME_24H_USD,
+                        help="Skip markets with 24h volume below this (and low liq)")
+    parser.add_argument("--min-liq", type=float, default=MIN_LIQUIDITY_USD,
+                        help="Skip markets with CLOB liquidity below this (and low vol)")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -213,8 +248,9 @@ def main():
     conn = init_db(args.db)
 
     log.info("[snapshot] fetching open fast-settling markets from Gamma")
-    markets = fetch_open_fast_settling_markets(rl)
-    log.info("[snapshot] %d open markets resolve within %dh", len(markets), FAST_SETTLING_HOURS)
+    markets = fetch_open_fast_settling_markets(rl, args.hours, args.min_vol_24h, args.min_liq)
+    log.info("[snapshot] %d open markets resolve within %dh (after liquidity filter)",
+             len(markets), args.hours)
     if args.max_markets > 0:
         markets = markets[:args.max_markets]
         log.info("[snapshot] capped to %d for this run", len(markets))
