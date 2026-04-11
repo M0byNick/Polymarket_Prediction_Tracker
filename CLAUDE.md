@@ -224,9 +224,50 @@ Non-portable edges are dropped from the strict tier.
   and 79% WR, the basic EV is -0.20 per dollar. Yet total PnL is +$486k.
   Possible explanations: exiting losers before full 0→1 swing, heavy
   sizing asymmetry, or a computation edge case. Verify in Phase 3.
-- **Next**: Phase 3 (ground truth + model build) focused on
-  0x006cc834Cc as primary target. Secondary: resolve piston777
-  math mystery.
+- **Phase 3a major correction** — 0x006cc834Cc is NOT a liquidity provider.
+  ESPN lookups on their top winning positions (Villarreal 2026-01-20,
+  PSG 2026-01-20, Man City 2026-01-04, Liverpool 2026-01-01) reveal that
+  **all four matches were LOST by the favorite**, and 0x006cc834Cc bet
+  **NO on "Will [favorite] win?"** in every case. $1.44M + $536k + $532k
+  across these 4 positions alone. They are a **fade-favorite directional
+  bettor**, not a market-maker. The 82%-below-mid slippage finding is
+  coincidental — they happen to get passive fills because they're patient
+  waiting for the NO side to come down.
+- **Phase 3a piston777 mystery resolved** — position WR is actually 83.8%
+  (earlier 79% had a push-counting bug). The +$486k PnL comes from 4x
+  sizing asymmetry (winners avg $35k vs losers $8.8k) plus active trend-
+  following. They are NOT a deep-favorite scalper — they buy into
+  favorable price moves and take partial profits. Much harder strategy
+  to replicate. Drop from priority list.
+- **Phase 3d** — ESPN API validated as ground truth source. Free,
+  public, historical, covers UCL / EPL / La Liga / Ligue 1 / Bundesliga /
+  Serie A with DraftKings odds embedded in some responses.
+- **Phase 3e** — fade-favorite model built and backtested against
+  0x006cc834Cc's actual positions. After separating moneyline from
+  spread/total:
+  - **24 pure moneyline NO positions in target Euro soccer + NBA**
+  - 62.5% WR, **+$2.53M PnL** on $3.75M staked = **67% ROI**
+  - YES comparison: 30.4% WR, -$1.45M, -82% ROI
+  - **Net edge: 149 percentage points of ROI**
+  - **NBA moneyline NO does NOT work** (10 positions, -$134k, -21% ROI)
+    — 0x006cc834Cc's NBA edge is in totals and spreads, not moneyline
+  - **Euro soccer moneyline NO works spectacularly**:
+    * EPL: 5 pos, 100% WR, +$1.28M, **154% ROI**
+    * Ligue 1: 1 pos, 100% WR, +$462k, 152% ROI
+    * UCL: 7 pos, 57% WR, +$927k, 47% ROI
+  - Threshold sweet spot: NO price ≤ 0.35 (implied fav ≥ 65%)
+    gives **5 of 5 historical wins, +$2.23M, 2.15x ROI**
+- **PRIMARY MODEL RULE** (ready for forward testing):
+  *"On Polymarket EPL / UCL / Ligue 1 / La Liga / Serie A 'Will [team] win?'
+  moneyline markets, buy NO when offered at ≤ 0.35 (market-implied favorite
+  probability ≥ 65%). Hold to resolution."*
+  - Historical sample: 13 European soccer positions, 77% WR, +$2.66M,
+    104% ROI
+  - Caveats: small n, survivorship bias inherent in studying a profitable
+    trader. Need forward validation.
+- **Phase 3 remaining**: Track 2B-full price history (background),
+  deep dives on top honorable, ESPN-based sharp-book comparison to
+  verify Polymarket's systematic favorite overpricing vs sharp books.
 
 ## Decisions Log
 
