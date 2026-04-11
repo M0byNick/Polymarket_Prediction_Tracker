@@ -146,9 +146,36 @@ Non-portable edges are dropped from the strict tier.
   weather 0.3%, "other" (news/politics/events) 41.1%.
 - **Universe-wide**: $178.9M total realized PnL, 75.7% profitable on
   resolved markets, median PnL $48k, p90 $3.1M, max $22M.
-- **Next**: Phase 1 — pull full history (no cap) for the 17 strict
-  survivors, compute sub-category breakdowns, verify edge profiles,
-  investigate outliers (033033033's 100% WR, SecondWindCapital's 30% WR).
+- **Phase 1 complete** — see `notebooks/phase1_findings.md`. Pulled
+  1,325,779 raw trades (66,231 unique markets) for all 17 strict survivors
+  in 19 min (5,310 API calls). Three critical findings:
+  1. **Category classifier is broken**. "misc" is the top category for 12
+     of 17 strict survivors because the title-keyword regex misses most
+     leagues. Worse: Sharky6999 (66% crypto) and 0xc2494b32d6… (93% crypto,
+     7,842 trades/day) were wrongly counted as sports specialists.
+     **~5-8 strict survivors are actually HFT bots that should fail the
+     filter.** Must fix Gamma-category-based classification before Phase 2.
+  2. **Outlier verification passed**:
+     - 033033033 100% WR is REAL (median buy 0.999, deep-cert arbitrage,
+       519 days running)
+     - SecondWindCapital $2M PnL REAL (tennis underdog, median buy 0.140,
+       p10 0.002, 60% loss rate with positive skew)
+     - 0x006cc834Cc… $4.55M is REAL and the **most promising trader in
+       the whole set** — multi-sport discretionary, 8.7 trades/day, 514
+       days active, highly variable sizing (CV=4.6), balanced entry prices
+     - 0xc2494b32d6… is a pure crypto HFT bot — drop from all further work
+  3. **Strict traders earn $276/trade vs $150** for honorable-only while
+     trade counts are similar (25k vs 29k mean). Edge is per-trade quality.
+- **Three clearly interpretable edge strategies identified:**
+  - **piston777**: NBA deep-favorite scalper, median entry 0.990,
+    3-4h before resolution, 66% NBA, 85% Americas-night UTC,
+    61,351 trades, $337k PnL
+  - **SecondWindCapital**: tennis underdog specialist, median entry 0.140
+  - **0x006cc834Cc…**: multi-sport discretionary, top priority for
+    feature extraction (highest PnL, cleanest profile)
+- **Phase 2 entry point**: fix category classifier via Gamma API, re-apply
+  filter, then deep-dive feature extraction on the top 3-4 portable-edge
+  traders identified above.
 
 ## Decisions Log
 
@@ -204,6 +231,25 @@ Non-portable edges are dropped from the strict tier.
   strict to honorable). 50k keeps most HFT extremes well-characterized
   while holding runtime under 1 hour. Phase 1 deep dive will pull full
   history (no cap) for the 17 strict survivors specifically.
+- **2026-04-11** (post-phase-1) — Category classifier based on `title`
+  keyword regex is insufficient. Must pull Gamma API `category` field
+  directly for each market and re-classify before running any further
+  filters. Proximate cause of 5-8 HFT bots being mislabeled as sports
+  specialists.
+- **2026-04-11** (post-phase-1) — Add `trades_per_day > 500` to the
+  strict filter to exclude market-making / HFT bots. Real discretionary
+  traders cluster around 1-50 trades/day; the HFT ones run at 400-8000/day.
+- **2026-04-11** (post-phase-1) — Per-trade PnL is the dominant signal
+  separating strict from honorable traders ($276 vs $150) while trade
+  counts and days-active are nearly identical. The strict filter works
+  at identifying quality per bet, not sample-size diligence.
+- **2026-04-11** (post-phase-1) — Feature-extraction priority order:
+  (1) 0x006cc834Cc092684F1B566 — discretionary multi-sport, $4.55M PnL
+  (2) piston777 — NBA deep-favorite scalper, most interpretable strategy
+  (3) SecondWindCapital — tennis underdog specialist
+  (4) 033033033 — deep-certainty arbitrage baseline
+  Drop 0xc2494b32d6… and Sharky6999 from any further sports-edge analysis
+  (they're crypto HFT, not sports traders).
 
 ## Reference
 
