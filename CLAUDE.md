@@ -119,22 +119,36 @@ Non-portable edges are dropped from the strict tier.
 - Plan scoped and approved.
 - **Step 1 spike complete** — see `notebooks/01_feasibility_findings.md`.
   Three blocking bugs found and fixed; two strategic findings
-  (profit/all=dead 2024 punters, volume/all=HFT bots).
-- **Step 2 pipeline complete** (`notebooks/02_characterization.py`) and
-  **dry-run validated at `limit-per-lb=50`**:
-  - 98 unique traders in universe
-  - 9 strict-tier + 53 honorable-only survivors
-  - Every strict survivor is a sports specialist
-  - Weather essentially nonexistent on Polymarket (<0.1% of fast-settling trades)
-  - profit_30d and profit_7d produce ~7× more strict survivors than volume leaderboards
-  - Top survivor: kch123, $11.67M PnL, 0.594 WR, 54,862 fast-settling sports trades, bootstrap p=0.006
-  - **Runtime surprise**: 57 min at `limit=50` (vs my estimate of 2-3 min)
-    — top traders have 100k+ lifetime trades; three hit the 150k safety cap
-- **Tier B cap added**: `--max-tier-b-pages=20` (10,000 trades/trader)
-  prevents HFT extremes from dominating runtime. Still well above the
-  500 fast-settling floor for all real candidates.
-- **Next**: full Step 2 run at `limit-per-lb=500` with Tier B cap,
-  projected ~45–90 min in background.
+  (profit/all top-5 = dormant 2024 punters, volume/all = HFT bots).
+- **Step 2 final run complete** — see `notebooks/02_final_findings.md`.
+  Ran three times to land on the right parameters:
+  1. Dry run at `limit=50`, no Tier B cap — 57 min, 98 traders, 9 strict
+  2. Full run at `limit=500`, 10k cap — 7.5 min, 98 traders, 5 strict
+     (revealed Polymarket leaderboard **hard-caps at 50 entries**, ignoring
+     both `limit>50` and `offset`; cap too aggressive, HFT extremes' edges
+     got truncated)
+  3. **Final run** with **8 leaderboards** (`profit` × {1d,7d,30d,all} +
+     `volume` × same) and 50k cap — **52 min, 207 unique traders,
+     17 strict, 119 honorable**
+- **Correction to Step 1 finding**: `profit/all` produces 6 strict survivors
+  when you look at ranks 6-50 (not just top 5). Keep it as a seed.
+- **Three edge profiles** visible in the 17 strict survivors:
+  - *High-WR favorite specialists* (WR ≥ 0.83): fengdubiying, piston777,
+    Sharky6999, 033033033
+  - *Coin-flip volume players* (~0.50 WR, huge sample): PeterDeboerCancerPatient,
+    0xc2494b32d6…, apucimama
+  - *Underdog specialists* (WR < 0.50, high payoff): SecondWindCapital,
+    Supah9ga
+- **Weather is thin but alive**: 6,806 fast-settling weather trades across
+  207 traders (0.3% of fast-settling). One weather specialist in a prior
+  run (ArmageddonRewardsBilly) so keep it in scope.
+- **Sports dominates** fast-settling at 56.3% of trades. Crypto 2.3%,
+  weather 0.3%, "other" (news/politics/events) 41.1%.
+- **Universe-wide**: $178.9M total realized PnL, 75.7% profitable on
+  resolved markets, median PnL $48k, p90 $3.1M, max $22M.
+- **Next**: Phase 1 — pull full history (no cap) for the 17 strict
+  survivors, compute sub-category breakdowns, verify edge profiles,
+  investigate outliers (033033033's 100% WR, SecondWindCapital's 30% WR).
 
 ## Decisions Log
 
@@ -172,6 +186,24 @@ Non-portable edges are dropped from the strict tier.
 - **2026-04-11** (post-dry-run) — Profit leaderboards (30d and 7d) are
   ~7× more likely to produce strict survivors than volume leaderboards.
   Volume leaders retained as negative controls but not primary source.
+- **2026-04-11** (post-full-run) — Polymarket leaderboard endpoint is
+  **hard-capped at 50 entries** regardless of `limit` param, and `offset`
+  is silently ignored (100% overlap between offset=0 and offset=50).
+  Confirmed empirically. Maximum universe via leaderboards is ~207 unique
+  wallets across all 8 (kind × window) combinations.
+- **2026-04-11** (post-final-run) — Step 2 final seeds all 8 leaderboard
+  combinations (profit and volume × 1d, 7d, 30d, all). 115 of 207 wallets
+  appear in only one leaderboard — multi-window seeding is necessary to
+  capture them.
+- **2026-04-11** (post-final-run) — Correction: the Step 1 dismissal of
+  `profit/all` was based on top-5 only; ranks 6-50 include real active
+  sports specialists, and profit/all contributed 6 strict survivors to
+  the final run (tied with profit/1d for highest strict yield).
+- **2026-04-11** (post-final-run) — Tier B cap at 100 pages (50k trades)
+  is the chosen balance. 10k was too aggressive (kch123 dropped from
+  strict to honorable). 50k keeps most HFT extremes well-characterized
+  while holding runtime under 1 hour. Phase 1 deep dive will pull full
+  history (no cap) for the 17 strict survivors specifically.
 
 ## Reference
 

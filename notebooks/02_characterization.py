@@ -510,9 +510,17 @@ def main():
     log.info("=" * 70)
 
     # Phase 1: seeds
-    log.info("[Phase 1] fetching seed leaderboards")
+    # NOTE: Polymarket leaderboard endpoint is hard-capped at 50 entries regardless
+    # of the `limit` param, and ignores `offset`. So the only way to expand the
+    # universe is to query multiple (kind, window) combinations. All 8 combos
+    # together yield ~207 unique traders after dedupe (post-Step-1 finding).
+    log.info("[Phase 1] fetching seed leaderboards (8 combinations)")
     universe: dict = {}
-    for kind, window in [("profit", "30d"), ("profit", "7d"), ("volume", "30d"), ("volume", "7d")]:
+    seed_combos = [
+        ("profit", "1d"), ("profit", "7d"), ("profit", "30d"), ("profit", "all"),
+        ("volume", "1d"), ("volume", "7d"), ("volume", "30d"), ("volume", "all"),
+    ]
+    for kind, window in seed_combos:
         entries = client.leaderboard(kind, window, args.limit_per_lb)
         log.info("  %s/%s → %d entries", kind, window, len(entries))
         for e in entries:
