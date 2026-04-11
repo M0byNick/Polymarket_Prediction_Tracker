@@ -204,9 +204,29 @@ Non-portable edges are dropped from the strict tier.
       heavy
     * Strategy: passive limit orders on top-flight Euro soccer
       moneylines in the final hour, collecting spread from takers
-- **Next**: Deep dives on piston777 (NBA+LoL scalper) and
-  SecondWindCapital (tennis underdog) with the same script, then
-  Track 2B-honorable tier pulls and Phase 3 ground truth joins.
+- **Phase 2E deep dives complete** — see
+  `notebooks/phase2e_comparison.md`. Three distinct portable strategies:
+  * **0x006cc834Cc** = Euro soccer moneyline liquidity provider
+    (82% passive fills, 46% of PnL from 21 UCL/EPL/Ligue 1 positions,
+    <1h entries). **Clearest portable edge in the whole project.**
+  * **piston777** = Deep-favorite scalper across NBA + LoL
+    (median entry 0.99, 79% WR, but the basic EV math is suspicious
+    at that strike — needs verification). Asia-timezone, ~360 t/day.
+  * **SecondWindCapital** = Early news/event speculator (49% of PnL
+    from >7-day holds, top wins in Iran strike / UFC / boxing /
+    Alcaraz tennis). Only 53 resolved positions total — sample size
+    concern. Not replicable without editorial judgment.
+- **Cross-pattern**: all three are concentrated bettors. Top 10
+  positions = 46-118% of total PnL. Remove the whales and each trader
+  is roughly breakeven. Implication for Phase 3: the research question
+  is "can we identify the conviction bets ex-ante?"
+- **piston777 math mystery** (needs resolving): at 0.99 median entry
+  and 79% WR, the basic EV is -0.20 per dollar. Yet total PnL is +$486k.
+  Possible explanations: exiting losers before full 0→1 swing, heavy
+  sizing asymmetry, or a computation edge case. Verify in Phase 3.
+- **Next**: Phase 3 (ground truth + model build) focused on
+  0x006cc834Cc as primary target. Secondary: resolve piston777
+  math mystery.
 
 ## Decisions Log
 
