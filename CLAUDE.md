@@ -265,9 +265,41 @@ Non-portable edges are dropped from the strict tier.
     104% ROI
   - Caveats: small n, survivorship bias inherent in studying a profitable
     trader. Need forward validation.
-- **Phase 3 remaining**: Track 2B-full price history (background),
-  deep dives on top honorable, ESPN-based sharp-book comparison to
-  verify Polymarket's systematic favorite overpricing vs sharp books.
+- **Phase 3d ESPN validation**: joined 0x006cc834Cc's 20 Euro soccer
+  moneyline positions to ESPN match results. 19/20 matched, 12 ✓ consistent
+  (PnL direction matches outcome direction), 0 inconsistent.
+- **CRITICAL CORRECTION**: The fade-favorite edge is partially about **draws**.
+  In Polymarket "Will [team] win?" markets, draws resolve NO. European soccer
+  has ~25-30% draw rates. For 0x006cc834Cc's 8 winning NO positions:
+  * 4 came from draws (+$1.97M, 184% ROI on $1.07M staked)
+  * 4 came from team losses (+$1.65M, 154% ROI on $1.07M staked)
+  The edge captures BOTH outcomes.
+- **Honorable-tier cross-validation** (Phase 3e expanded):
+  Pulled full history for 25 top honorable candidates (1.1M trades),
+  found **332 similar NO-side Euro soccer moneyline positions** with
+  stake >$100:
+  * Aggregate: 48.8% WR, +$4.9M PnL on $23.9M stake = 21% ROI
+  * 0x006cc834Cc's 67% ROI is now clearly an outlier vs the cross-
+    trader norm. The real edge is closer to 20-25% ROI, not 100%+.
+  * Best confirming signal: SeriouslySirius (40 positions, 57.5% WR,
+    60% ROI) and kch123 (9 positions, 55.6% WR, 73% ROI).
+  * Dispersed: some traders (waterbottle6, HorizonSplendidView) lose
+    money on the same strategy — suggesting it's not price-magnitude
+    that matters, but trade selection within the high-fav pool.
+- **Combined sample: 356 NO-side Euro soccer moneyline positions,
+  ~49% WR, ~23% ROI, ~$7.4M PnL**. This is a defensible statistical edge.
+- **Refined model rule** (ready for forward paper test):
+  *"On Polymarket European soccer 'Will [team] win?' moneyline markets,
+  buy NO when market-implied favorite prob ≥ 65%. Expected gross ROI:
+  20-30% per position. WR near 49% (coin flip) because edge is in
+  skew from draws + upsets."*
+- **Phase 3c running overnight**: full price history pull for all 42
+  wallets (~13 hours, 117k tokens). Task `bxdio1xdi` in background.
+  Will complete by morning.
+- **Next session**: (a) deep dives on top honorable traders after
+  price history completes, (b) forward paper test of the fade-favorite
+  rule on live EPL/UCL markets, (c) sharp-book validation via the-odds-
+  api to test whether Polymarket systematically mis-prices favorites.
 
 ## Decisions Log
 

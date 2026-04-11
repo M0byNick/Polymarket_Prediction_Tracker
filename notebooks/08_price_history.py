@@ -81,7 +81,6 @@ def init_price_table(conn):
 def get_wallet_filter(conn, scope: str, priority_only: bool) -> list:
     """Return list of wallet addresses to include based on scope."""
     if priority_only:
-        # Match by name pattern or wallet prefix
         rows = conn.execute("SELECT wallet, name FROM strict_wallets").fetchall()
         matches = []
         for w, n in rows:
@@ -92,30 +91,48 @@ def get_wallet_filter(conn, scope: str, priority_only: bool) -> list:
     elif scope == "strict":
         rows = conn.execute("SELECT wallet FROM strict_wallets").fetchall()
         return [r[0] for r in rows]
+    elif scope == "all":
+        # Both strict + honorable
+        rows = conn.execute("SELECT wallet FROM strict_wallets").fetchall()
+        strict_wallets = [r[0] for r in rows]
+        rows = conn.execute("SELECT wallet FROM honorable_wallets").fetchall()
+        honorable_wallets = [r[0] for r in rows]
+        return list(set(strict_wallets + honorable_wallets))
     return []
 
 
 def get_tokens_for_wallets(conn, wallets: list) -> list:
     """
     For the given wallets, find every unique (condition_id, token_id, outcome_index)
-    they traded, paired with the window to pull: [earliest_trade - 1d, resolve_ts + 1d].
+    they traded across BOTH strict_trades and honorable_trades. Paired with the
+    window: [earliest_trade - 1d, resolve_ts + 1d].
 
-    CLOB /prices-history caps window at ~15 days — fine because our fast-settling
+    CLOB /prices-history caps window at ~15 days — fine because fast-settling
     markets all have lifetimes well under that.
     """
     if not wallets:
         return []
     placeholders = ",".join("?" * len(wallets))
+    # Union over both strict and honorable trade tables
     rows = conn.execute(f"""
-        SELECT t.condition_id, t.asset, t.outcome_index,
-               MIN(t.timestamp) AS first_ts, MAX(t.timestamp) AS last_ts,
+        WITH combined AS (
+            SELECT condition_id, asset, outcome_index, timestamp
+            FROM strict_trades
+            WHERE wallet IN ({placeholders})
+              AND asset IS NOT NULL AND asset != ''
+            UNION ALL
+            SELECT condition_id, asset, outcome_index, timestamp
+            FROM honorable_trades
+            WHERE wallet IN ({placeholders})
+              AND asset IS NOT NULL AND asset != ''
+        )
+        SELECT c.condition_id, c.asset, c.outcome_index,
+               MIN(c.timestamp) AS first_ts, MAX(c.timestamp) AS last_ts,
                m.resolve_ts
-        FROM strict_trades t
-        LEFT JOIN strict_markets m ON t.condition_id = m.condition_id
-        WHERE t.wallet IN ({placeholders})
-          AND t.asset IS NOT NULL AND t.asset != ''
-        GROUP BY t.condition_id, t.asset, t.outcome_index
-    """, wallets).fetchall()
+        FROM combined c
+        LEFT JOIN strict_markets m ON c.condition_id = m.condition_id
+        GROUP BY c.condition_id, c.asset, c.outcome_index
+    """, wallets + wallets).fetchall()
 
     import time as _t
     now = int(_t.time())
@@ -189,7 +206,7 @@ def save_price_points(conn, token_id: str, cid: str, points: list) -> int:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default="data/polymarket_strict_deep.db")
-    parser.add_argument("--scope", choices=["priority", "strict", "expanded"], default="priority")
+    parser.add_argument("--scope", choices=["priority", "strict", "expanded", "all"], default="priority")
     parser.add_argument("--rate", type=float, default=10.0)
     parser.add_argument("--skip-fetched", action="store_true",
                         help="Skip tokens already in price_history_fetched table")
