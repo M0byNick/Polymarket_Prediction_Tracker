@@ -335,6 +335,10 @@ def main():
     log.info("[snapshot] wrote %d price rows across %d markets in %.1fs",
              len(price_rows), len(market_tokens), time.time() - t0)
 
+    # Heartbeat for Docker HEALTHCHECK
+    from pathlib import Path
+    Path(os.path.join(os.path.dirname(args.db), ".heartbeat")).touch()
+
     return 0
 
 
