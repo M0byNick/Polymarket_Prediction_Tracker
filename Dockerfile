@@ -29,9 +29,14 @@ RUN useradd --create-home appuser && \
     chown -R appuser:appuser /app
 USER appuser
 
-# Health check (file-based heartbeat, updated each snapshot cycle)
-HEALTHCHECK --interval=120s --timeout=10s --retries=3 \
+# Health check (file-based heartbeat, updated at end of each snapshot cycle).
+# Threshold is 90 min (not 45) to tolerate the actual cycle time:
+# snapshot fetch has scaled to ~40-60 min against ~10k open markets
+# (ramped up from the initial ~1k), plus the 30-min inter-cycle sleep.
+# If heartbeat hasn't been touched in 90 min, the bot has genuinely stalled.
+# Interval bumped 120s → 600s since a 60-90 min cycle doesn't need 2-min polling.
+HEALTHCHECK --interval=600s --timeout=10s --retries=3 \
   CMD test -f /app/data/.heartbeat && \
-      find /app/data/.heartbeat -mmin -45 | grep -q . || exit 1
+      find /app/data/.heartbeat -mmin -90 | grep -q . || exit 1
 
 CMD ["python", "-u", "scripts/snapshot_runner.py"]
