@@ -18,8 +18,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Application code
 COPY scripts/ ./scripts/
+COPY src/ ./src/
 COPY notebooks/ ./notebooks/
 COPY CLAUDE.md ./
+COPY POLYMARKET_STAGE4_ROADMAP.md ./
 
 # Data directory for volumes
 RUN mkdir -p /app/data
@@ -39,4 +41,7 @@ HEALTHCHECK --interval=600s --timeout=10s --retries=3 \
   CMD test -f /app/data/.heartbeat && \
       find /app/data/.heartbeat -mmin -90 | grep -q . || exit 1
 
-CMD ["python", "-u", "scripts/snapshot_runner.py"]
+# Stage 4 supervisor: runs snapshot_runner + signal_monitor + paper_trader
+# + resolution_watcher as isolated subprocesses. Falls back to snapshot-only
+# if STAGE4=0 is set (useful for the historical snapshot-only deployment).
+CMD ["sh", "-c", "if [ \"${STAGE4:-1}\" = \"0\" ]; then exec python -u scripts/snapshot_runner.py; else exec python -u scripts/stage4_runner.py; fi"]
