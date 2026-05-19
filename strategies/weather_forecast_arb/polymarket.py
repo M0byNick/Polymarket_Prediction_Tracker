@@ -1,9 +1,34 @@
 """
 Polymarket Gamma-API client for weather-temperature events.
 
-Pulls open events tagged `weather`, filters to "highest-temperature-in-X-on-DATE"
-and "lowest-temperature-in-X-on-DATE" event slugs, joins to the frozen city
-universe in cities.py.
+Pulls open events tagged `daily-temperature`, filters to
+"highest-temperature-in-X-on-DATE" and "lowest-temperature-in-X-on-DATE" event
+slugs, joins to the frozen city universe in cities.py.
+
+BUG FIX 2026-05-18 (validation-window bug, pre-reg §12 — implementation
+plumbing only, no pre-registered parameter touched):
+  Discovery previously queried tag_slug="weather". That Gamma tag (id 84) is
+  the *climate/disaster* bucket — hottest-year, arctic-ice, hurricanes,
+  earthquakes, volcanoes — and contains NONE of the daily
+  "highest-temperature-in-<city>-on-<date>" temperature-bin markets the
+  strategy needs, so discovery returned 0 events every cycle. The daily
+  temperature-bin events instead carry the distinct tag `daily-temperature`
+  (Gamma tag id 103040, label "Daily Temperature"). Discovery now queries
+  that tag. Two further plumbing corrections were required for the fix to
+  actually surface usable events (both are slug-parsing detail, not
+  pre-registered parameters — the pre-reg froze the *event-slug* regex
+  `_EVENT_SLUG_RE`, the universe, the filters, the model and the windows,
+  none of which change here):
+    - The Gamma `closed=false` query param zeroes the result set when
+      combined with `tag_slug`, and the event-level `closed` flag is itself
+      unreliable on these recurring markets (events still days from their
+      endDate report closed=true). Discovery no longer sends `closed=false`;
+      it pages by `end_date_min`/`order=endDate` and filters client-side on
+      `endDate > now`. The §5 entry-window logic downstream is unchanged.
+    - Bin-suffix slug forms observed live are `<n>corbelow`/`<n>forbelow`
+      (open lower bin) and `<n1>-<n2><unit>` hyphen ranges; the original
+      regexes only matched `corless`/`forless` and `<n1>to<n2>` forms. The
+      bin regexes are widened to accept both spellings.
 
 Per pre-reg §1.2 universe is locked: events with city slugs not in
 cities.ALL_STATIONS are skipped. Karachi and Ankara are explicitly out.
@@ -48,18 +73,24 @@ _MONTH_TO_NUM = {
 }
 
 # Bin slug suffix forms we recognise. Pre-reg §3.4 needs (T_low, T_high) bounds.
-# Forms seen in practice (from 2026-05-12 enumeration):
-#   "<number>c"            -> exact integer °C bin centered at N (half-open)
-#   "<number>f"            -> exact °F bin
-#   "<number>corhigher"    -> open upper bin [N, +inf)
-#   "<number>forhigher"    -> open upper bin in °F
-#   "<number>corless"      -> open lower bin (-inf, N]
-#   "<number>forless"      -> open lower bin in °F
-#   "<number>to<number>c"  -> closed range [N1, N2] in °C  (verify forms)
+# Forms seen live (re-enumerated 2026-05-18 from tag `daily-temperature`):
+#   "<number>c"               -> exact integer °C bin (half-open [N, N+1))
+#   "<number>f"               -> exact °F bin
+#   "<number>corhigher"       -> open upper bin [N, +inf)
+#   "<number>forhigher"       -> open upper bin in °F
+#   "<number>corbelow"        -> open lower bin (-inf, N]   (also legacy "corless")
+#   "<number>forbelow"        -> open lower bin in °F       (also legacy "forless")
+#   "<number>-<number>c"      -> closed range in °C         (also legacy "<n>to<n>")
+#   "<number>-<number>f"      -> closed range in °F
+# NOTE: bin-slug parsing is implementation plumbing, NOT a pre-registered
+# parameter. The pre-reg froze `_EVENT_SLUG_RE` (the event slug), the
+# universe, the filters, the model and the windows — none change here. The
+# `or(below|less)` and `(-|to)` alternations below tolerate both the current
+# Gamma spelling and the older spelling captured on 2026-05-12.
 _BIN_RE_INTEGER = re.compile(r"-(\d+)(c|f)$")
 _BIN_RE_OR_HIGHER = re.compile(r"-(\d+)(c|f)orhigher$")
-_BIN_RE_OR_LESS = re.compile(r"-(\d+)(c|f)orless$")
-_BIN_RE_RANGE = re.compile(r"-(\d+)to(\d+)(c|f)$")
+_BIN_RE_OR_LESS = re.compile(r"-(\d+)(c|f)or(?:below|less)$")
+_BIN_RE_RANGE = re.compile(r"-(\d+)(?:to|-)(\d+)(c|f)$")
 
 
 @dataclass(frozen=True)
@@ -144,23 +175,43 @@ def _coerce_price(raw) -> Optional[float]:
         return None
 
 
+# Gamma tag carrying the daily "highest/lowest-temperature-in-<city>-on-<date>"
+# temperature-bin markets. NOT tag `weather` (id 84) — that is the
+# climate/disaster bucket. See module-docstring BUG FIX 2026-05-18.
+DAILY_TEMPERATURE_TAG = "daily-temperature"
+
+
 def discover_weather_events(session: Optional[requests.Session] = None) -> list[WeatherEvent]:
     """
-    Fetch open weather-tagged events, filter to the frozen universe, return
+    Fetch open daily-temperature events, filter to the frozen universe, return
     parsed WeatherEvents with their bins + current YES/NO prices.
+
+    Discovery queries Gamma tag `daily-temperature` (the temperature-bin
+    bucket). We do NOT send `closed=false` (it zeroes the tag-filtered result
+    set, and the event `closed` flag is unreliable on these recurring
+    markets); instead we request events whose endDate is today-or-later via
+    `end_date_min`, sort by endDate descending, and filter client-side on
+    `endDate > now`. Per-event entry timing is still governed by the §5
+    window logic in the caller — this function only excludes already-ended
+    events.
     """
     s = session or requests
     events_out: list[WeatherEvent] = []
+    now_dt = datetime.now(timezone.utc)
+    # end_date_min: midnight UTC today, so an event ending later today is kept.
+    end_date_min = now_dt.strftime("%Y-%m-%dT00:00:00Z")
     offset = 0
     page = 100
     while True:
         r = s.get(
             f"{GAMMA}/events",
             params={
-                "closed": "false",
                 "limit": page,
                 "offset": offset,
-                "tag_slug": "weather",
+                "tag_slug": DAILY_TEMPERATURE_TAG,
+                "order": "endDate",
+                "ascending": "false",
+                "end_date_min": end_date_min,
             },
             timeout=TIMEOUT,
             headers={"User-Agent": USER_AGENT},
@@ -186,10 +237,15 @@ def discover_weather_events(session: Optional[requests.Session] = None) -> list[
 
             end_iso = e.get("endDate") or e.get("endDateIso")
             try:
-                end_ts = int(datetime.fromisoformat(
+                end_dt = datetime.fromisoformat(
                     str(end_iso).replace("Z", "+00:00")
-                ).timestamp())
+                )
+                end_ts = int(end_dt.timestamp())
             except Exception:
+                continue
+            # Skip events already past their resolution time. (Replaces the
+            # unreliable `closed` flag — see docstring.)
+            if end_dt <= now_dt:
                 continue
 
             bins: list[Bin] = []
