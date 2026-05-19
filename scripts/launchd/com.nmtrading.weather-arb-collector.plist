@@ -8,6 +8,17 @@
   the collector logs strategy DECISIONS and market/forecast snapshots into
   the SQLite DB; it places no orders and touches no wallet.
 
+  DEPLOYMENT NOTE (2026-05-19): the weather collector runs out of a
+  DEDICATED git worktree, Tracker_Poly_weather, checked out on the
+  weather-forecast-arb-scaffold branch. The sibling Tracker_Poly checkout is
+  pinned to the crypto-latency-arb-scaffold branch for the crypto collector.
+  The two scaffold branches are disjoint in scripts/ and strategies/, so a
+  single checkout cannot serve both daemons — a branch switch silently
+  removes one daemon's files from disk (this caused a ~20h weather stall).
+  Each daemon therefore has its own worktree. The Python interpreter is the
+  shared .venv under the original Tracker_Poly checkout (a venv is not
+  branch-tracked, so it is safe to share).
+
   Install:
     cp scripts/launchd/com.nmtrading.weather-arb-collector.plist \
        ~/Library/LaunchAgents/
@@ -29,10 +40,12 @@
         <string>scripts/weather_arb_runner.py</string>
     </array>
 
-    <!-- weather_arb_runner.py invokes scripts/weather_arb_collect.py by a
-         relative path, so the working directory must be the repo root. -->
+    <!-- The working directory is the weather worktree root. weather_arb_runner.py
+         now resolves the child collect script by an absolute path from
+         __file__, but WorkingDirectory is still pinned here so any relative
+         path in the runner or child resolves against the correct checkout. -->
     <key>WorkingDirectory</key>
-    <string>/Users/nicholasmorihisa/Code/Trade_Organizer/Prediction_Markets/Tracker_Poly</string>
+    <string>/Users/nicholasmorihisa/Code/Trade_Organizer/Prediction_Markets/Tracker_Poly_weather</string>
 
     <key>EnvironmentVariables</key>
     <dict>

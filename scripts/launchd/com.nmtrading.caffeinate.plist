@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Machine-sleep preventer for the local collector fleet.
+
+  Holds a `caffeinate -s` assertion for as long as the user is logged in, so
+  the Mac does not sleep and pause the crypto-arb / weather-arb collector
+  daemons. This exists because an overnight sleep on 2026-05-18 paused both
+  collectors; the weather collector then failed to resume cleanly.
+
+  WHY caffeinate (not pmset): pmset changes to the sleep schedule require
+  sudo. caffeinate needs no elevated privileges, so it is the mechanism
+  available to a user-level LaunchAgent.
+
+  `caffeinate -s` asserts "system sleep prevented while on AC power". The
+  process never exits on its own, so KeepAlive=true simply means launchd
+  re-launches it if it is ever killed. It is harmless to load more than
+  once (launchctl will refuse a duplicate label).
+
+  SCOPE / LIMITATIONS:
+    * A LaunchAgent runs only while the user is logged in. If the user logs
+      out or the Mac is at the login window, this assertion is NOT held.
+    * `caffeinate -s` only prevents sleep while on AC power. On battery the
+      Mac can still sleep.
+    * For a guarantee independent of login state, also set
+      System Settings > Battery (or Energy Saver) to prevent automatic
+      sleep, or run `sudo pmset -a sleep 0` (sudo required — out of scope
+      for this no-sudo agent).
+    * Verify the assertion is live with:  pmset -g assertions | grep -i sleep
+
+  Install:
+    cp scripts/launchd/com.nmtrading.caffeinate.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.nmtrading.caffeinate.plist
+    launchctl list | grep caffeinate
+
+  This file in the repo is the source of truth; the loaded copy lives at
+  ~/Library/LaunchAgents/com.nmtrading.caffeinate.plist.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.nmtrading.caffeinate</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/caffeinate</string>
+        <string>-s</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- caffeinate -s never exits; KeepAlive re-launches it if it is ever
+         killed (e.g. by a crash or an OOM sweep). -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Don't hot-loop if it somehow exits immediately. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/nicholasmorihisa/trading-data/caffeinate.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/nicholasmorihisa/trading-data/caffeinate.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

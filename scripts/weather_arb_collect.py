@@ -69,124 +69,139 @@ def run_cycle(db_path: str) -> dict:
     n_skip = 0
     n_api_errors = 0
     n_in_window = 0
+    n_event_errors = 0
 
     for ev in events:
-        hours_to_close = (ev.end_date_utc - now_ts) / 3600.0
-
-        # Persist event + bin snapshots regardless of entry window — the
-        # bin-price tape is useful for later analysis even on events we don't
-        # touch this cycle.
-        db.upsert_event(
-            conn,
-            event_id=ev.event_id, event_slug=ev.event_slug,
-            kind=ev.kind, city=ev.station.city,
-            station_icao=ev.station.icao, target_date=ev.target_date,
-            end_date_utc=ev.end_date_utc, now_ts=now_ts,
-        )
-        bin_rows = []
-        for b in ev.bins:
-            t_low_neg_inf = 1 if (math.isinf(b.t_low) and b.t_low < 0) else 0
-            t_low_db = None if t_low_neg_inf else b.t_low
-            t_high_db = None if (math.isinf(b.t_high) and b.t_high > 0) else b.t_high
-            bin_rows.append((
-                now_ts, ev.event_id, b.condition_id, b.market_slug,
-                t_low_db if t_low_db is not None else float("-1e18"),  # placeholder for sortability
-                t_high_db, t_low_neg_inf, b.units,
-                b.yes_price, b.no_price,
-            ))
-        db.insert_bin_snapshots(conn, bin_rows)
-
-        # Only run forecast + strategy for events in the entry window.
-        if not (strategy.ENTRY_WINDOW_MIN_HOURS <= hours_to_close <= strategy.ENTRY_WINDOW_MAX_HOURS):
-            db.insert_decision(
-                conn, snapshot_ts=now_ts, event_id=ev.event_id,
-                outcome="SKIP", reason="outside_entry_window",
-                hours_to_close=hours_to_close,
-                mu_hat=None, sigma_hat=None, spread_raw=None,
-                sum_bin_prices=None, n_models_used=0,
-                chosen_condition_id=None, chosen_yes_price=None,
-                chosen_model_p=None, chosen_ev=None,
-                chosen_t_low=None, chosen_t_high=None,
-            )
-            n_skip += 1
-            continue
-
-        n_in_window += 1
+        # RESILIENCE (added 2026-05-19): one malformed event — a surprising
+        # Gamma payload, a strategy edge case, a transient DB hiccup — must
+        # cost exactly that one event, never the whole cycle. The per-event
+        # body is wrapped so the loop always advances to the next event and
+        # the cycle always reaches its commit + heartbeat below.
         try:
-            fc = open_meteo.fetch(
-                lat=ev.station.lat, lon=ev.station.lon,
-                tz=ev.station.tz, units=ev.station.units,
-                target_date=ev.target_date,
-                session=session,
-            )
-        except Exception as ex:
-            log.warning("Open-Meteo error for %s: %s", ev.event_slug, ex)
-            n_api_errors += 1
-            db.insert_decision(
-                conn, snapshot_ts=now_ts, event_id=ev.event_id,
-                outcome="SKIP", reason="api_error",
-                hours_to_close=hours_to_close,
-                mu_hat=None, sigma_hat=None, spread_raw=None,
-                sum_bin_prices=None, n_models_used=0,
-                chosen_condition_id=None, chosen_yes_price=None,
-                chosen_model_p=None, chosen_ev=None,
-                chosen_t_low=None, chosen_t_high=None,
-            )
-            n_skip += 1
-            continue
+            hours_to_close = (ev.end_date_utc - now_ts) / 3600.0
 
-        # Persist per-model forecast rows
-        fc_rows = []
-        for mf in fc.models:
-            fc_rows.append((
-                now_ts, ev.event_id, mf.model, mf.target_date,
-                mf.temp_max, mf.temp_min,
-                fc.api_grid_lat, fc.api_grid_lon,
-            ))
-        db.insert_forecast_rows(conn, fc_rows)
+            # Persist event + bin snapshots regardless of entry window — the
+            # bin-price tape is useful for later analysis even on events we
+            # don't touch this cycle.
+            db.upsert_event(
+                conn,
+                event_id=ev.event_id, event_slug=ev.event_slug,
+                kind=ev.kind, city=ev.station.city,
+                station_icao=ev.station.icao, target_date=ev.target_date,
+                end_date_utc=ev.end_date_utc, now_ts=now_ts,
+            )
+            bin_rows = []
+            for b in ev.bins:
+                t_low_neg_inf = 1 if (math.isinf(b.t_low) and b.t_low < 0) else 0
+                t_low_db = None if t_low_neg_inf else b.t_low
+                t_high_db = None if (math.isinf(b.t_high) and b.t_high > 0) else b.t_high
+                bin_rows.append((
+                    now_ts, ev.event_id, b.condition_id, b.market_slug,
+                    t_low_db if t_low_db is not None else float("-1e18"),  # placeholder for sortability
+                    t_high_db, t_low_neg_inf, b.units,
+                    b.yes_price, b.no_price,
+                ))
+            db.insert_bin_snapshots(conn, bin_rows)
 
-        # Apply strategy
-        decision = strategy.evaluate(ev, fc, now_ts)
-        if decision.outcome == "TRADE":
-            n_trade += 1
-            assert decision.best_bin is not None
-            db.insert_decision(
-                conn, snapshot_ts=now_ts, event_id=ev.event_id,
-                outcome="TRADE", reason="ok",
-                hours_to_close=hours_to_close,
-                mu_hat=decision.mu_hat, sigma_hat=decision.sigma_hat,
-                spread_raw=decision.spread_raw,
-                sum_bin_prices=decision.sum_bin_prices,
-                n_models_used=decision.n_models_used,
-                chosen_condition_id=decision.best_bin.condition_id,
-                chosen_yes_price=decision.best_bin.market_yes_price,
-                chosen_model_p=decision.best_bin.model_p_yes,
-                chosen_ev=decision.best_bin.expected_value,
-                chosen_t_low=decision.best_bin.t_low if not math.isinf(decision.best_bin.t_low) else None,
-                chosen_t_high=decision.best_bin.t_high if not math.isinf(decision.best_bin.t_high) else None,
-            )
-            log.info("TRADE %s [%s, %s] yes=%.3f p_model=%.3f ev=%.3f",
-                     ev.event_slug, decision.best_bin.t_low,
-                     decision.best_bin.t_high,
-                     decision.best_bin.market_yes_price or 0,
-                     decision.best_bin.model_p_yes,
-                     decision.best_bin.expected_value)
-        else:
+            # Only run forecast + strategy for events in the entry window.
+            if not (strategy.ENTRY_WINDOW_MIN_HOURS <= hours_to_close <= strategy.ENTRY_WINDOW_MAX_HOURS):
+                db.insert_decision(
+                    conn, snapshot_ts=now_ts, event_id=ev.event_id,
+                    outcome="SKIP", reason="outside_entry_window",
+                    hours_to_close=hours_to_close,
+                    mu_hat=None, sigma_hat=None, spread_raw=None,
+                    sum_bin_prices=None, n_models_used=0,
+                    chosen_condition_id=None, chosen_yes_price=None,
+                    chosen_model_p=None, chosen_ev=None,
+                    chosen_t_low=None, chosen_t_high=None,
+                )
+                n_skip += 1
+                continue
+
+            n_in_window += 1
+            try:
+                fc = open_meteo.fetch(
+                    lat=ev.station.lat, lon=ev.station.lon,
+                    tz=ev.station.tz, units=ev.station.units,
+                    target_date=ev.target_date,
+                    session=session,
+                )
+            except Exception as ex:
+                log.warning("Open-Meteo error for %s: %s", ev.event_slug, ex)
+                n_api_errors += 1
+                db.insert_decision(
+                    conn, snapshot_ts=now_ts, event_id=ev.event_id,
+                    outcome="SKIP", reason="api_error",
+                    hours_to_close=hours_to_close,
+                    mu_hat=None, sigma_hat=None, spread_raw=None,
+                    sum_bin_prices=None, n_models_used=0,
+                    chosen_condition_id=None, chosen_yes_price=None,
+                    chosen_model_p=None, chosen_ev=None,
+                    chosen_t_low=None, chosen_t_high=None,
+                )
+                n_skip += 1
+                continue
+
+            # Persist per-model forecast rows
+            fc_rows = []
+            for mf in fc.models:
+                fc_rows.append((
+                    now_ts, ev.event_id, mf.model, mf.target_date,
+                    mf.temp_max, mf.temp_min,
+                    fc.api_grid_lat, fc.api_grid_lon,
+                ))
+            db.insert_forecast_rows(conn, fc_rows)
+
+            # Apply strategy
+            decision = strategy.evaluate(ev, fc, now_ts)
+            if decision.outcome == "TRADE":
+                n_trade += 1
+                assert decision.best_bin is not None
+                db.insert_decision(
+                    conn, snapshot_ts=now_ts, event_id=ev.event_id,
+                    outcome="TRADE", reason="ok",
+                    hours_to_close=hours_to_close,
+                    mu_hat=decision.mu_hat, sigma_hat=decision.sigma_hat,
+                    spread_raw=decision.spread_raw,
+                    sum_bin_prices=decision.sum_bin_prices,
+                    n_models_used=decision.n_models_used,
+                    chosen_condition_id=decision.best_bin.condition_id,
+                    chosen_yes_price=decision.best_bin.market_yes_price,
+                    chosen_model_p=decision.best_bin.model_p_yes,
+                    chosen_ev=decision.best_bin.expected_value,
+                    chosen_t_low=decision.best_bin.t_low if not math.isinf(decision.best_bin.t_low) else None,
+                    chosen_t_high=decision.best_bin.t_high if not math.isinf(decision.best_bin.t_high) else None,
+                )
+                log.info("TRADE %s [%s, %s] yes=%.3f p_model=%.3f ev=%.3f",
+                         ev.event_slug, decision.best_bin.t_low,
+                         decision.best_bin.t_high,
+                         decision.best_bin.market_yes_price or 0,
+                         decision.best_bin.model_p_yes,
+                         decision.best_bin.expected_value)
+            else:
+                n_skip += 1
+                db.insert_decision(
+                    conn, snapshot_ts=now_ts, event_id=ev.event_id,
+                    outcome="SKIP", reason=decision.reason,
+                    hours_to_close=hours_to_close,
+                    mu_hat=decision.mu_hat, sigma_hat=decision.sigma_hat,
+                    spread_raw=decision.spread_raw,
+                    sum_bin_prices=decision.sum_bin_prices,
+                    n_models_used=decision.n_models_used,
+                    chosen_condition_id=(decision.best_bin.condition_id if decision.best_bin else None),
+                    chosen_yes_price=(decision.best_bin.market_yes_price if decision.best_bin else None),
+                    chosen_model_p=(decision.best_bin.model_p_yes if decision.best_bin else None),
+                    chosen_ev=(decision.best_bin.expected_value if decision.best_bin else None),
+                    chosen_t_low=None, chosen_t_high=None,
+                )
+        except Exception:
+            # Any uncaught failure on this event: log with a traceback and
+            # move on. The event is simply absent from this snapshot.
+            n_event_errors += 1
             n_skip += 1
-            db.insert_decision(
-                conn, snapshot_ts=now_ts, event_id=ev.event_id,
-                outcome="SKIP", reason=decision.reason,
-                hours_to_close=hours_to_close,
-                mu_hat=decision.mu_hat, sigma_hat=decision.sigma_hat,
-                spread_raw=decision.spread_raw,
-                sum_bin_prices=decision.sum_bin_prices,
-                n_models_used=decision.n_models_used,
-                chosen_condition_id=(decision.best_bin.condition_id if decision.best_bin else None),
-                chosen_yes_price=(decision.best_bin.market_yes_price if decision.best_bin else None),
-                chosen_model_p=(decision.best_bin.model_p_yes if decision.best_bin else None),
-                chosen_ev=(decision.best_bin.expected_value if decision.best_bin else None),
-                chosen_t_low=None, chosen_t_high=None,
-            )
+            log.exception(
+                "event %s (%s) failed this cycle — skipping",
+                getattr(ev, "event_id", "?"), getattr(ev, "event_slug", "?"))
 
     conn.commit()
 
@@ -197,13 +212,14 @@ def run_cycle(db_path: str) -> dict:
         "n_trade": n_trade,
         "n_skip": n_skip,
         "n_api_errors": n_api_errors,
+        "n_event_errors": n_event_errors,
         "duration_sec": duration,
     }
     db.insert_cycle(
         conn, cycle_ts=now_ts, duration_sec=duration,
         n_events=len(events), n_trade=n_trade, n_skip=n_skip,
         n_api_errors=n_api_errors,
-        notes=f"in_window={n_in_window}",
+        notes=f"in_window={n_in_window} event_errors={n_event_errors}",
     )
     conn.commit()
     conn.close()

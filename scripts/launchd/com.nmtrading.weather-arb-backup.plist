@@ -15,6 +15,13 @@
     launchctl load ~/Library/LaunchAgents/com.nmtrading.weather-arb-backup.plist
     launchctl list | grep weather
 
+  DEPLOYMENT NOTE (2026-05-19): the backup script lives in the dedicated
+  weather worktree, Tracker_Poly_weather (weather-forecast-arb-scaffold
+  branch). The previous plist pointed at .../Tracker_Poly/scripts/launchd/,
+  which is the sibling crypto checkout — the weather backup script is not on
+  disk there, so /bin/bash exited 127 (command/file not found) every run.
+  The path below points at the weather worktree where the script exists.
+
   This file in the repo is the source of truth; the loaded copy lives at
   ~/Library/LaunchAgents/com.nmtrading.weather-arb-backup.plist.
 -->
@@ -26,7 +33,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/nicholasmorihisa/Code/Trade_Organizer/Prediction_Markets/Tracker_Poly/scripts/launchd/weather_arb_backup.sh</string>
+        <string>/Users/nicholasmorihisa/Code/Trade_Organizer/Prediction_Markets/Tracker_Poly_weather/scripts/launchd/weather_arb_backup.sh</string>
     </array>
 
     <!-- Daily at 03:30 local time. launchd runs a missed job at next wake
