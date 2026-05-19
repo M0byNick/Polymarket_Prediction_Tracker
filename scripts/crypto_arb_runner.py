@@ -16,6 +16,11 @@ Configurable via environment variables:
     CRYPTO_ARB_DB                    SQLite path (default
                                      /Users/nicholasmorihisa/trading-data/crypto/crypto_arb.db)
     CRYPTO_ARB_HEARTBEAT             heartbeat file path
+    CRYPTO_ARB_CYCLE_TIMEOUT         hard wall-clock cap for one child cycle
+                                     in seconds (default 120). A wedged
+                                     network read can never stall the loop:
+                                     the child is killed at this cap and the
+                                     loop continues to the next cycle.
     CRYPTO_ARB_CAPTURE_HORIZON_MIN   dense-snapshot only markets resolving
                                      within this many minutes (default 90;
                                      a collector-efficiency bound, read by
@@ -53,10 +58,13 @@ log = logging.getLogger("crypto_arb_runner")
 
 DEFAULT_INTERVAL = 30          # seconds (pre-reg audit §2.4: <=30s cadence)
 MIN_SLEEP = 5                  # floor sleep if a cycle overruns the interval
+DEFAULT_CYCLE_TIMEOUT = 120    # hard wall-clock cap on a single child cycle
 
 
 def main() -> int:
     interval = int(os.environ.get("CRYPTO_ARB_INTERVAL", DEFAULT_INTERVAL))
+    cycle_timeout = int(
+        os.environ.get("CRYPTO_ARB_CYCLE_TIMEOUT", DEFAULT_CYCLE_TIMEOUT))
     db_path = os.environ.get(
         "CRYPTO_ARB_DB",
         "/Users/nicholasmorihisa/trading-data/crypto/crypto_arb.db")
@@ -64,11 +72,15 @@ def main() -> int:
         "CRYPTO_ARB_HEARTBEAT",
         "/Users/nicholasmorihisa/trading-data/crypto/.heartbeat_crypto_arb")
 
-    collect_script = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "crypto_arb_collect.py")
+    # Absolute path derived from this file's location — robust against the
+    # process cwd. The repo root is the parent of scripts/; the child runs
+    # with cwd pinned there so its own relative paths resolve too.
+    scripts_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.dirname(scripts_dir)
+    collect_script = os.path.join(scripts_dir, "crypto_arb_collect.py")
 
-    log.info("crypto_arb_runner starting — interval=%ds db=%s hb=%s",
-             interval, db_path, hb_path)
+    log.info("crypto_arb_runner starting — interval=%ds cycle_timeout=%ds "
+             "db=%s hb=%s", interval, cycle_timeout, db_path, hb_path)
 
     cycle = 0
     while True:
@@ -80,9 +92,18 @@ def main() -> int:
                 [sys.executable, "-u", collect_script,
                  "--db", db_path, "--heartbeat", hb_path],
                 check=False,
+                cwd=repo_root,
+                timeout=cycle_timeout,
             ).returncode
-        except Exception as ex:
-            log.error("cycle %d crashed: %s", cycle, ex)
+        except subprocess.TimeoutExpired:
+            # The child blew the wall-clock cap (most likely a wedged network
+            # read — e.g. a socket killed by a laptop sleep mid-request).
+            # subprocess.run has already killed it. Continue to next cycle.
+            log.error("cycle %d exceeded %ds wall-clock cap — child killed, "
+                      "continuing", cycle, cycle_timeout)
+            rc = 1
+        except Exception:
+            log.exception("cycle %d crashed in the runner", cycle)
             rc = 1
 
         elapsed = time.time() - t0
@@ -93,7 +114,10 @@ def main() -> int:
 
         sleep_s = max(interval - elapsed, MIN_SLEEP)
         log.info("sleeping %.1fs until next cycle", sleep_s)
-        time.sleep(sleep_s)
+        try:
+            time.sleep(sleep_s)
+        except Exception:
+            log.exception("sleep interrupted; continuing")
 
 
 if __name__ == "__main__":
