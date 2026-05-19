@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Crypto-binary latency arb collector — interim local DB backup.
+
+  Runs scripts/launchd/crypto_arb_backup.sh once daily (03:45 local). Each
+  run writes a transaction-consistent, date-stamped copy of the collector DB
+  to /Users/nicholasmorihisa/trading-data-backup/crypto/. This is an INTERIM
+  on-machine backup; off-machine backup (e.g. to GitHub or a VPS) is a
+  separate task.
+
+  03:45 is offset from the weather-arb backup's 03:30 so the two daily
+  `sqlite3 .backup` jobs don't contend.
+
+  Install:
+    cp scripts/launchd/com.nmtrading.crypto-arb-backup.plist \
+       ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.nmtrading.crypto-arb-backup.plist
+    launchctl list | grep crypto
+
+  This file in the repo is the source of truth; the loaded copy lives at
+  ~/Library/LaunchAgents/com.nmtrading.crypto-arb-backup.plist.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.nmtrading.crypto-arb-backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/nicholasmorihisa/Code/Trade_Organizer/Prediction_Markets/Tracker_Poly/scripts/launchd/crypto_arb_backup.sh</string>
+    </array>
+
+    <!-- Daily at 03:45 local time. launchd runs a missed job at next wake
+         if the machine was asleep at the scheduled time. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>45</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/nicholasmorihisa/trading-data/crypto/logs/crypto-arb-backup.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/nicholasmorihisa/trading-data/crypto/logs/crypto-arb-backup.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

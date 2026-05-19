@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Crypto-binary latency arb collector — persistent local daemon.
+
+  Runs strategies/crypto_latency_arb via scripts/crypto_arb_runner.py (a 30s
+  internal loop; CRYPTO_ARB_INTERVAL overrides). OBSERVE-ONLY: the collector
+  captures raw Polymarket crypto-binary top-of-book quotes + a centralized-
+  exchange spot reference into the SQLite DB. It places NO orders, touches NO
+  wallet, and risks NO capital.
+
+  Pre-registration:
+    Prediction_Markets/docs/findings/STRATEGY_CRYPTO_LATENCY_ARB_PREREG_2026-05-14.md
+
+  Install:
+    cp scripts/launchd/com.nmtrading.crypto-arb-collector.plist \
+       ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.nmtrading.crypto-arb-collector.plist
+    launchctl list | grep crypto
+
+  This file in the repo is the source of truth; the loaded copy lives at
+  ~/Library/LaunchAgents/com.nmtrading.crypto-arb-collector.plist.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.nmtrading.crypto-arb-collector</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/nicholasmorihisa/Code/Trade_Organizer/Prediction_Markets/Tracker_Poly/.venv/bin/python</string>
+        <string>-u</string>
+        <string>scripts/crypto_arb_runner.py</string>
+    </array>
+
+    <!-- crypto_arb_runner.py invokes scripts/crypto_arb_collect.py by a
+         path relative to the runner; the working directory must be the
+         repo root so the strategies/ package is importable. -->
+    <key>WorkingDirectory</key>
+    <string>/Users/nicholasmorihisa/Code/Trade_Organizer/Prediction_Markets/Tracker_Poly</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CRYPTO_ARB_DB</key>
+        <string>/Users/nicholasmorihisa/trading-data/crypto/crypto_arb.db</string>
+        <key>CRYPTO_ARB_HEARTBEAT</key>
+        <string>/Users/nicholasmorihisa/trading-data/crypto/.heartbeat_crypto_arb</string>
+        <!-- 30s loop: pre-reg audit §2.4 specifies <=30s cadence before the
+             holdout window opens. -->
+        <key>CRYPTO_ARB_INTERVAL</key>
+        <string>30</string>
+        <!-- Dense-snapshot only markets resolving within 90 min. This is a
+             collector-efficiency bound, NOT a pre-reg hyperparameter: it
+             covers the pre-reg's <=30-min entry window with 60 min margin
+             while holding DB growth to a disk-safe ~0.1 GB/day (an
+             unbounded sweep is ~1.1 GB/day, which would overrun the disk
+             over the 12-week holdout). -->
+        <key>CRYPTO_ARB_CAPTURE_HORIZON_MIN</key>
+        <string>90</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Don't hot-loop if the process exits immediately. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/nicholasmorihisa/trading-data/crypto/logs/crypto-arb-collector.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/nicholasmorihisa/trading-data/crypto/logs/crypto-arb-collector.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
