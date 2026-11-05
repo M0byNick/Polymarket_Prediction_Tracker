@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Weather forecast arb collector — persistent local daemon.
+
+  Runs strategies/weather_forecast_arb via scripts/weather_arb_runner.py
+  (a 30-minute internal loop; WEATHER_ARB_INTERVAL overrides). OBSERVE-ONLY:
+  the collector logs strategy DECISIONS and market/forecast snapshots into
+  the SQLite DB; it places no orders and touches no wallet.
+
+  DEPLOYMENT NOTE (2026-05-19): the weather collector runs out of a
+  DEDICATED git worktree, Tracker_Poly_weather, checked out on the
+  weather-forecast-arb-scaffold branch. The sibling Tracker_Poly checkout is
+  pinned to the crypto-latency-arb-scaffold branch for the crypto collector.
+  The two scaffold branches are disjoint in scripts/ and strategies/, so a
+  single checkout cannot serve both daemons — a branch switch silently
+  removes one daemon's files from disk (this caused a ~20h weather stall).
+  Each daemon therefore has its own worktree. The Python interpreter is the
+  shared .venv under the original Tracker_Poly checkout (a venv is not
+  branch-tracked, so it is safe to share).
+
+  Install:
+    cp scripts/launchd/com.nmtrading.weather-arb-collector.plist \
+       ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.nmtrading.weather-arb-collector.plist
+    launchctl list | grep weather
+
+  This file in the repo is the source of truth; the loaded copy lives at
+  ~/Library/LaunchAgents/com.nmtrading.weather-arb-collector.plist.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.nmtrading.weather-arb-collector</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/nicholasmorihisa/Code/Trade_Organizer/Prediction_Markets/Tracker_Poly/.venv/bin/python</string>
+        <string>-u</string>
+        <string>scripts/weather_arb_runner.py</string>
+    </array>
+
+    <!-- The working directory is the weather worktree root. weather_arb_runner.py
+         now resolves the child collect script by an absolute path from
+         __file__, but WorkingDirectory is still pinned here so any relative
+         path in the runner or child resolves against the correct checkout. -->
+    <key>WorkingDirectory</key>
+    <string>/Users/nicholasmorihisa/Code/Trade_Organizer/Prediction_Markets/Tracker_Poly_weather</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>WEATHER_ARB_DB</key>
+        <string>/Users/nicholasmorihisa/trading-data/weather/weather_arb.db</string>
+        <key>WEATHER_ARB_HEARTBEAT</key>
+        <string>/Users/nicholasmorihisa/trading-data/weather/.heartbeat_weather_arb</string>
+        <key>WEATHER_ARB_INTERVAL</key>
+        <string>1800</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Don't hot-loop if the process exits immediately. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/nicholasmorihisa/trading-data/weather/logs/weather-arb-collector.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/nicholasmorihisa/trading-data/weather/logs/weather-arb-collector.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
